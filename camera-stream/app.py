@@ -16,6 +16,11 @@ def get_camera():
     global _camera
     if _camera is None or not _camera.isOpened():
         _camera = cv2.VideoCapture(DEVICE, cv2.CAP_V4L2)
+        # Minimize internal buffering so reads return the freshest frame.
+        try:
+            _camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:  # noqa: BLE001
+            pass
     return _camera
 
 
@@ -72,10 +77,15 @@ def stream():
 
 @app.route("/snapshot")
 def snapshot():
-    """Capture and return a single JPEG frame."""
+    """Capture and return a single fresh JPEG frame."""
     cam = get_camera()
-    ok, frame = cam.read()
-    if not ok:
+    # Flush stale buffered frames so the snapshot reflects the current scene.
+    frame = None
+    for _ in range(5):
+        ok, f = cam.read()
+        if ok:
+            frame = f
+    if frame is None:
         return Response("could not read frame", status=503, mimetype="text/plain")
     ok, buf = cv2.imencode(".jpg", frame)
     if not ok:
