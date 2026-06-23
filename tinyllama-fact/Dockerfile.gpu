@@ -4,7 +4,7 @@ FROM nvidia/cuda:12.8.1-devel-ubuntu22.04 AS build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-dev \
-        build-essential cmake git curl \
+        build-essential cmake ninja-build git curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Compile llama-cpp-python with CUDA enabled, targeting the RTX 5060 (Blackwell, sm_120).
