@@ -1,0 +1,26 @@
+# CUDA 12.8 devel base — required for Blackwell / RTX 50-series (compute capability sm_120)
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-dev \
+        build-essential cmake git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Compile llama-cpp-python with CUDA enabled, targeting the RTX 5060 (Blackwell, sm_120).
+# Include sm_89 (Ada) as a fallback architecture for broader compatibility.
+ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120;89"
+ENV FORCE_CMAKE=1
+RUN pip3 install --no-cache-dir "llama-cpp-python[server]==0.3.2"
+
+# Bake the TinyLlama 1.1B Chat GGUF (Q4_K_M) into the image
+RUN mkdir -p /models && \
+    curl -fL -o /models/tinyllama.gguf \
+    https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+
+ENV MODEL=/models/tinyllama.gguf
+ENV PORT=8000
+EXPOSE 8000
+
+# Offload all layers to the GPU (-ngl 999). Larger context since the GPU has headroom.
+CMD ["sh", "-c", "python3 -m llama_cpp.server --model ${MODEL} --host 0.0.0.0 --port ${PORT} --n_ctx 4096 --n_gpu_layers 999"]

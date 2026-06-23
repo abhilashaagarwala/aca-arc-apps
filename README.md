@@ -18,6 +18,7 @@ A CPU-only LLM inference service running **TinyLlama-1.1B-Chat** (GGUF Q4_K_M) v
 - Internal ingress only (consumed by `add-numbers`)
 - CPU-only; compiled with AVX2/FMA/F16C (no AVX-512) for broad CPU compatibility
 - The model is baked into the image at build time
+- **GPU variant**: `Dockerfile.gpu` builds a CUDA image (targets RTX 5060 / Blackwell `sm_120`) that offloads all layers to an NVIDIA GPU. Deploy with `k8s/tinyllama-gpu-deploy.yaml` as a plain k8s workload (ACA-on-Arc cannot request GPUs).
 
 ### `camera-stream`
 A plain-Kubernetes app (not ACA) that mounts a USB camera (`/dev/video0`) via `hostPath` + privileged securityContext and serves a live MJPEG stream over HTTP. ACA cannot mount host devices, so this runs as a raw k8s Deployment.
@@ -48,3 +49,9 @@ az containerapp create \
 
 - `tinyllama-fact` and `add-numbers` run on the ACA Arc connected environment.
 - `camera-stream` runs as a plain k8s Deployment because ACA does not support `hostPath`, device mounts, or privileged containers.
+
+## Kubernetes manifests (`k8s/`)
+
+- `nvidia-device-plugin.yaml` — NVIDIA device plugin DaemonSet (exposes `nvidia.com/gpu`). Configured with `runtimeClassName: nvidia` and `NVIDIA_VISIBLE_DEVICES=all` so NVML loads correctly on k3s.
+- `gpu-test.yaml` — sample CUDA vectoradd pod to validate GPU scheduling (`Test PASSED`).
+- `tinyllama-gpu-deploy.yaml` — Deployment + Service for the GPU TinyLlama variant, requesting `nvidia.com/gpu: 1` in the `gpu-workloads` namespace.
