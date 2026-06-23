@@ -1,5 +1,6 @@
 import os
 import time
+import base64
 import concurrent.futures
 import requests
 from flask import Flask, request, Response
@@ -9,7 +10,10 @@ app = Flask(__name__)
 # CPU fact service (ACA container app) and GPU fact service (plain k8s on the RTX 5060).
 CPU_SERVICE_URL = os.environ.get("CPU_SERVICE_URL", os.environ.get("FACT_SERVICE_URL", "http://tinyllama-fact"))
 GPU_SERVICE_URL = os.environ.get("GPU_SERVICE_URL", "http://tinyllama-gpu.gpu-workloads.svc.cluster.local")
+# Camera snapshot service (plain k8s, camera namespace).
+CAMERA_SERVICE_URL = os.environ.get("CAMERA_SERVICE_URL", "http://camera-stream.camera.svc.cluster.local")
 FACT_TIMEOUT = float(os.environ.get("FACT_TIMEOUT", "90"))
+CAMERA_TIMEOUT = float(os.environ.get("CAMERA_TIMEOUT", "15"))
 
 PAGE = """<!doctype html>
 <html lang="en">
@@ -43,6 +47,7 @@ PAGE = """<!doctype html>
                line-height:1.4; }}
     .cpu textarea {{ border-color:#78350f; }}
     .gpu textarea {{ border-color:#065f46; }}
+    img.snapshot {{ width:100%; margin-top:.4rem; border-radius:8px; border:1px solid #334155; display:block; }}
   </style>
 </head>
 <body>
@@ -90,14 +95,27 @@ def get_fun_fact(service_url, number):
         return f"(Unavailable: {exc})", time.time() - start
 
 
-def get_both_facts(number):
-    """Query CPU and GPU services in parallel. Returns dict of backend -> (text, secs)."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {
-            "cpu": pool.submit(get_fun_fact, CPU_SERVICE_URL, number),
-            "gpu": pool.submit(get_fun_fact, GPU_SERVICE_URL, number),
-        }
-        return {k: f.result() for k, f in futures.items()}
+def get_camera_snapshot():
+    """Fetch a single JPEG frame from the camera service. Returns a data URI or None."""
+    try:
+        resp = requests.get(f"{CAMERA_SERVICE_URL}/snapshot", timeout=CAMERA_TIMEOUT)
+        resp.raise_for_status()
+        b64 = base64.b64encode(resp.content).decode("ascii")
+        return f"data:image/jpeg;base64,{b64}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def camera_block(data_uri):
+    if data_uri:
+        return (
+            '<div class="fact-label"><span>Camera snapshot</span></div>'
+            f'<img class="snapshot" src="{data_uri}" alt="camera snapshot">'
+        )
+    return (
+        '<div class="fact-label"><span>Camera snapshot</span></div>'
+        '<textarea readonly>(Camera unavailable)</textarea>'
+    )
 
 
 def fact_block(css_class, title, text, secs):
@@ -115,6 +133,15 @@ def render(a="", b="", result="", facts=""):
     return PAGE.format(a=a, b=b, result=result_block, facts=facts)
 
 
+def get_all(number):
+    """Query CPU fact, GPU fact, and camera snapshot in parallel."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        f_cpu = pool.submit(get_fun_fact, CPU_SERVICE_URL, number)
+        f_gpu = pool.submit(get_fun_fact, GPU_SERVICE_URL, number)
+        f_cam = pool.submit(get_camera_snapshot)
+        return f_cpu.result(), f_gpu.result(), f_cam.result()
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
@@ -124,12 +151,11 @@ def index():
             total = float(a) + float(b)
             if total.is_integer():
                 total = int(total)
-            results = get_both_facts(total)
-            cpu_text, cpu_secs = results["cpu"]
-            gpu_text, gpu_secs = results["gpu"]
+            (cpu_text, cpu_secs), (gpu_text, gpu_secs), snapshot = get_all(total)
             facts = (
                 fact_block("cpu", "CPU fact (ACA / TinyLlama)", cpu_text, cpu_secs)
                 + fact_block("gpu", "GPU fact (RTX 5060 / TinyLlama)", gpu_text, gpu_secs)
+                + camera_block(snapshot)
             )
             return render(a, b, f"{a} + {b} = {total}", facts)
         except ValueError:

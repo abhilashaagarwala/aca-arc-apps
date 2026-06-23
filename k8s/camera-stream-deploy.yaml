@@ -7,6 +7,8 @@ metadata:
     app: camera-stream
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: camera-stream
@@ -19,7 +21,7 @@ spec:
         - name: acr-pull
       containers:
         - name: camera-stream
-          image: nvidiartxsffacrairs6.azurecr.io/camera-stream:v1
+          image: nvidiartxsffacrairs6.azurecr.io/camera-stream:v2
           ports:
             - containerPort: 8080
           securityContext:
@@ -58,3 +60,4 @@ spec:
       port: 80
       targetPort: 8080
   type: ClusterIP
+

@@ -70,6 +70,19 @@ def stream():
     )
 
 
+@app.route("/snapshot")
+def snapshot():
+    """Capture and return a single JPEG frame."""
+    cam = get_camera()
+    ok, frame = cam.read()
+    if not ok:
+        return Response("could not read frame", status=503, mimetype="text/plain")
+    ok, buf = cv2.imencode(".jpg", frame)
+    if not ok:
+        return Response("could not encode frame", status=500, mimetype="text/plain")
+    return Response(buf.tobytes(), mimetype="image/jpeg")
+
+
 @app.route("/health")
 def health():
     cam = get_camera()
