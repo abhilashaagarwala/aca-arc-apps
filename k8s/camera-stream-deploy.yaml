@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camera-stream
+  namespace: camera
+  labels:
+    app: camera-stream
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: camera-stream
+  template:
+    metadata:
+      labels:
+        app: camera-stream
+    spec:
+      imagePullSecrets:
+        - name: acr-pull
+      containers:
+        - name: camera-stream
+          image: nvidiartxsffacrairs6.azurecr.io/camera-stream:v1
+          ports:
+            - containerPort: 8080
+          securityContext:
+            privileged: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: dev-video0
+              mountPath: /dev/video0
+            - name: dev-video1
+              mountPath: /dev/video1
+      volumes:
+        - name: dev-video0
+          hostPath:
+            path: /dev/video0
+            type: CharDevice
+        - name: dev-video1
+          hostPath:
+            path: /dev/video1
+            type: CharDevice
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camera-stream
+  namespace: camera
+spec:
+  selector:
+    app: camera-stream
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
