@@ -9,9 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Compile llama-cpp-python with CUDA enabled, targeting the RTX 5060 (Blackwell, sm_120).
 # Include sm_89 (Ada) as a fallback architecture for broader compatibility.
-# The -devel image ships a stub libcuda.so under stubs/; point the linker there so the
-# CUDA Driver API symbols (cuMemMap, cuDeviceGet, ...) resolve at link time.
-ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120;89 -DCMAKE_EXE_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs -DCMAKE_SHARED_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs"
+#
+# The -devel image ships only a stub libcuda.so (no versioned libcuda.so.1) under stubs/.
+# llama.cpp's CUDA lib has a NEEDED entry for libcuda.so.1, so create that symlink and point
+# the linker at the stubs dir. Also disable llama.cpp's example/test binaries (e.g.
+# llama-minicpmv-cli) — we don't need them and they were the targets failing to link.
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120;89 -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs -DCMAKE_SHARED_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs"
 ENV FORCE_CMAKE=1
 ENV LIBRARY_PATH="/usr/local/cuda/lib64/stubs:${LIBRARY_PATH}"
 RUN pip3 install --no-cache-dir "llama-cpp-python[server]==0.3.2"
