@@ -7,17 +7,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake ninja-build git curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Compile llama-cpp-python with CUDA enabled, targeting the RTX 5060 (Blackwell, sm_120).
-# Include sm_89 (Ada) as a fallback architecture for broader compatibility.
-#
 # The -devel image ships only a stub libcuda.so (no versioned libcuda.so.1) under stubs/.
-# llama.cpp's CUDA lib has a NEEDED entry for libcuda.so.1, so create that symlink and point
-# the linker at the stubs dir. Also disable llama.cpp's example/test binaries (e.g.
-# llama-minicpmv-cli) — we don't need them and they were the targets failing to link.
-RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
-ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120;89 -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs -DCMAKE_SHARED_LINKER_FLAGS=-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs"
+# llama.cpp's CUDA lib records a NEEDED dependency on libcuda.so.1. Transitive NEEDED deps
+# are resolved via the linker's DEFAULT search paths, so place the versioned symlink in
+# /usr/lib/x86_64-linux-gnu (a default path). This avoids fragile -rpath-link/linker-flag
+# plumbing (spaces in CMAKE_ARGS values break arg parsing).
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so.1
+
+# Compile llama-cpp-python with CUDA enabled, targeting the RTX 5060 (Blackwell, sm_120)
+# plus sm_89 (Ada) as a fallback. Keep CMAKE_ARGS free of spaces-in-values so all options
+# are parsed correctly.
+ENV CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120;89"
 ENV FORCE_CMAKE=1
-ENV LIBRARY_PATH="/usr/local/cuda/lib64/stubs:${LIBRARY_PATH}"
 RUN pip3 install --no-cache-dir "llama-cpp-python[server]==0.3.2"
 
 # Bake the TinyLlama 1.1B Chat GGUF (Q4_K_M) into the image
